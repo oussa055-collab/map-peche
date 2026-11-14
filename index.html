@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Map Pêche</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--ab:#071c28;--ti:#0f3a4d;--fo:#eaf6f4;--bu:#ffc629;--rd:#ff5a4f;--mu:#8db4c0}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--ab);color:var(--fo);font:16px system-ui,sans-serif}
+#map{position:absolute;inset:env(safe-area-inset-top) 0 calc(60px + env(safe-area-inset-bottom)) 0}
+nav{position:absolute;left:0;right:0;bottom:0;height:calc(60px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:var(--ti);z-index:1100}
+nav button{flex:1;border:0;background:none;color:var(--fo);font-size:14px}
+nav button.on{color:var(--bu);font-weight:700}
+.fab{position:absolute;right:12px;z-index:900;width:52px;height:52px;border-radius:50%;border:0;background:var(--bu);color:#1a1300;font-size:24px}
+#loc{bottom:calc(72px + env(safe-area-inset-bottom))}#add{bottom:calc(132px + env(safe-area-inset-bottom))}
+.sheet{display:none;position:absolute;left:0;right:0;bottom:calc(60px + env(safe-area-inset-bottom));max-height:72%;overflow:auto;background:var(--ti);padding:14px;border-radius:16px 16px 0 0;z-index:1000}
+.sheet.show{display:block}
+h3{margin:0 0 10px;font-size:18px}
+input,select,textarea,.sheet button{width:100%;margin:4px 0;padding:12px;border-radius:10px;border:1px solid #2c5a6e;background:var(--ab);color:var(--fo);font-size:16px}
+.sheet button{background:var(--bu);color:#1a1300;border:0;font-weight:700}
+.sheet button.g{background:#1d4a5e;color:var(--fo)}.sheet button.r{background:var(--rd);color:#fff}
+.row{display:flex;gap:8px}.row>*{flex:1}
+input[type=checkbox]{width:auto;margin-right:8px}
+.pt{border-top:1px solid #2c5a6e;padding:10px 0}
+.big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.mu{color:var(--mu);font-size:14px}
+.pt .row button{padding:8px;font-size:14px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:5px 4px;border-top:1px solid #2c5a6e}
+#toast{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:var(--fo);color:var(--ab);padding:10px 16px;border-radius:20px;z-index:2000;display:none;font-weight:600}
+</style></head><body>
+<div id="map"></div><div id="toast"></div>
+<button class="fab" id="loc" aria-label="Ma position">◎</button>
+<button class="fab" id="add" aria-label="Nouveau point">＋</button>
+<div class="sheet" id="s-add"><h3>Nouveau point</h3>
+<input id="n" placeholder="Nom (ex : tombant du phare)">
+<input id="d" type="number" step="0.1" placeholder="Profondeur (m)">
+<input id="t" placeholder="Note (visibilité, courant, poissons…)">
+<label><input id="b" type="checkbox">Point d’entrée (plage)</label>
+<div class="row"><button id="hg">Enregistrer ici (GPS)</button><button id="hc" class="g">Au centre de la carte</button></div></div>
+<div class="sheet" id="s-pts"></div><div class="sheet" id="s-wx"></div>
+<div class="sheet" id="s-bk"><h3>Sauvegarde</h3>
+<p class="mu">Copie ta sauvegarde et colle-la dans une note ou un message à toi-même. Fais-le avant chaque mise à jour de l’appli.</p>
+<div class="row"><button id="cj">Copier la sauvegarde</button><button id="cg" class="g">Copier en GPX</button></div>
+<textarea id="ta" rows="5" placeholder="Colle ici une sauvegarde pour restaurer tes points"></textarea>
+<button id="rs" class="g">Restaurer depuis ce texte</button></div>
+<nav><button data-s="">Carte</button><button data-s="s-pts">Points</button><button data-s="s-wx">Météo</button><button data-s="s-bk">Sauvegarde</button></nav>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+// Réglages : seuils de vagues (m), vent (km/h), vitesse de nage (m/min)
+const CFG={waveOk:0.10,waveMax:0.15,windMax:25,swim:25};
+const $=s=>document.querySelector(s),R=6371000,rad=x=>x*Math.PI/180;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let pts=[],me=null,ref='gps',ln=null,wt=null;
+try{pts=JSON.parse(localStorage.getItem('pts')||'[]')}catch(e){}
+function save(){try{localStorage.setItem('pts',JSON.stringify(pts));return true}catch(e){toast('Sauvegarde impossible : copie tes points');return false}}
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)}
+const dist=(a,b)=>{const dl=rad(b.lat-a.lat),dg=rad(b.lng-a.lng),h=Math.sin(dl/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(h))};
+const brg=(a,b)=>{const y=Math.sin(rad(b.lng-a.lng))*Math.cos(rad(b.lat)),x=Math.cos(rad(a.lat))*Math.sin(rad(b.lat))-Math.sin(rad(a.lat))*Math.cos(rad(b.lat))*Math.cos(rad(b.lng-a.lng));return(Math.atan2(y,x)*180/Math.PI+360)%360};
+const fm=m=>m<1000?Math.round(m)+' m':(m/1000).toFixed(2)+' km',D=['N','NE','E','SE','S','SO','O','NO'],card=d=>D[Math.round(d/45)%8];
+const osm=()=>L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'});
+const map=L.map('map',{zoomControl:false}).setView([36.8,10.2],8);
+const plan=osm().addTo(map);
+L.control.layers({'Plan':plan,'Marine':L.layerGroup([osm(),L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenSeaMap'})])},null,{position:'topright'}).addTo(map);
+const ml=L.layerGroup().addTo(map);let mk=null,ac=null,first=true;
+function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)).on('click',()=>go(p.id)).addTo(ml));renderPts()}
+navigator.geolocation.watchPosition(p=>{me={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
+ if(!mk){mk=L.circleMarker(me,{radius:7,color:'#fff',fillColor:'#2b8cff',fillOpacity:1}).addTo(map);ac=L.circle(me,{radius:me.acc,weight:1,color:'#2b8cff'}).addTo(map)}
+ mk.setLatLng(me);ac.setLatLng(me).setRadius(me.acc);if(first){map.setView(me,15);first=false}renderPts()},
+ ()=>toast('GPS indisponible : active la localisation'),{enableHighAccuracy:true,maximumAge:2000});
+function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.toggle('show',s.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===(id||'')))}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{const s=b.dataset.s;if(s==='s-wx')wx(wt||me||map.getCenter());else open(s)});
+$('#loc').onclick=()=>me?map.setView(me,16):toast('Position GPS en attente…');
+$('#add').onclick=()=>open('s-add');
+function addPt(pos){const name=$('#n').value.trim();if(!name)return toast('Donne un nom au point');
+ pts.push({id:Date.now(),name,depth:$('#d').value===''?null:+$('#d').value,note:$('#t').value.trim(),beach:$('#b').checked,lat:+pos.lat.toFixed(6),lng:+pos.lng.toFixed(6),acc:pos.acc||null,at:new Date().toISOString()});
+ if(save()){$('#n').value=$('#d').value=$('#t').value='';$('#b').checked=false;drawMk();open('');toast('Point enregistré')}}
+$('#hg').onclick=()=>me?addPt(me):toast('Position GPS en attente…');
+$('#hc').onclick=()=>addPt(map.getCenter());
+function go(id){const p=pts.find(x=>x.id==id),r=ref==='gps'?me:pts.find(x=>x.id==ref);map.setView([p.lat,p.lng],16);if(ln)map.removeLayer(ln);if(r)ln=L.polyline([r,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map);open('')}
+function renderPts(){const r=ref==='gps'?me:pts.find(p=>p.id==ref);
+ const rows=pts.filter(p=>p.id!=ref).map(p=>({p,d:r?dist(r,p):null})).sort((a,b)=>(a.d??1e12)-(b.d??1e12));
+ $('#s-pts').innerHTML='<h3>Mes points ('+pts.length+')</h3><span class="mu">Mesurer depuis</span><select id="rf"><option value="gps">Ma position GPS</option>'+pts.map(p=>`<option value="${p.id}" ${p.id==ref?'selected':''}>${p.beach?'🏖 ':''}${esc(p.name)}</option>`).join('')+'</select>'
+ +(ref==='gps'&&me&&me.acc>20?`<p class="mu">Précision GPS faible : ±${Math.round(me.acc)} m</p>`:'')
+ +(rows.length?'':'<p class="mu">Aucun point à mesurer. Touche ＋ sur la carte pour en enregistrer un.</p>')
+ +rows.map(({p,d})=>`<div class="pt"><b>${p.beach?'🏖 ':''}${esc(p.name)}</b> <span class="mu">${p.depth!=null?p.depth+' m de fond':''}</span>`
+ +(d!=null?`<div class="big">${fm(d)} <span class="mu">cap ${Math.round(brg(r,p))}° ${card(brg(r,p))} · nage ~${Math.max(1,Math.round(d/CFG.swim))} min</span></div>`:'<div class="mu">Mesure : position GPS en attente</div>')
+ +(p.note?`<div class="mu">${esc(p.note)}</div>`:'')
+ +`<div class="row"><button data-a="go" data-id="${p.id}">Voir</button><button class="g" data-a="wx" data-id="${p.id}">Météo</button><button class="r" data-a="del" data-id="${p.id}">Suppr.</button></div></div>`).join('')}
+$('#s-pts').onchange=e=>{if(e.target.id==='rf'){ref=e.target.value;renderPts()}};
+$('#s-pts').onclick=e=>{const a=e.target.dataset.a,id=e.target.dataset.id;if(!a)return;
+ if(a==='go')go(id);if(a==='wx')wx(pts.find(p=>p.id==id));
+ if(a==='del'){const p=pts.find(x=>x.id==id);if(confirm('Supprimer « '+p.name+' » ? Cette action est définitive.')){pts=pts.filter(x=>x.id!=id);if(ref==id)ref='gps';save();drawMk()}}};
+const verdict=(h,v)=>h==null?'⚪':h>CFG.waveMax?'🔴':(h>CFG.waveOk||v>CFG.windMax)?'🟠':'🟢';
+async function wx(p){wt=p;open('s-wx');const el=$('#s-wx');el.innerHTML='<h3>Météo…</h3>';
+ try{const q=`latitude=${p.lat}&longitude=${p.lng}&timezone=auto&forecast_days=2`;
+  const [m,w]=await Promise.all([fetch(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height`).then(r=>r.json()),fetch(`https://api.open-meteo.com/v1/forecast?${q}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m`).then(r=>r.json())]);
+  const T=w.hourly.time,now=new Date(Date.now()+w.utc_offset_seconds*1000).toISOString().slice(0,13),i=Math.max(0,T.findIndex(t=>t.startsWith(now))),wh=(m.hourly&&m.hourly.wave_height)||[];
+  const row=k=>({t:T[k].slice(11,16),h:wh[k]??null,v:Math.round(w.hourly.wind_speed_10m[k]),g:Math.round(w.hourly.wind_gusts_10m[k]),d:card(w.hourly.wind_direction_10m[k])});
+  const fmt=r=>`${verdict(r.h,r.v)} ${r.h!=null?Math.round(r.h*100)+' cm':'vagues ?'} · vent ${r.v} km/h ${r.d}`;
+  const c=row(i);let best=null;for(let k=i;k<Math.min(i+24,T.length);k++){const r=row(k),hr=+r.t.slice(0,2);if(r.h!=null&&hr>=6&&hr<=20&&(!best||r.h<best.h||(r.h===best.h&&r.v<best.v)))best=r}
+  let h=`<h3>${esc(p.name||'Position')}</h3><div class="row"><button class="g" id="w1">Ma position</button><button class="g" id="w2">Centre carte</button></div><div class="big">${fmt(c)}</div><p class="mu">Rafales ${c.g} km/h</p>`;
+  h+=c.h==null?'<p class="mu">Pas de données de vagues ici : le point est trop près de la terre pour le modèle. Essaie un point un peu plus au large.</p>':(best?`<p>Meilleur créneau (6 h–20 h) : <b>${best.t}</b>, ${fmt(best)}</p>`:'');
+  h+='<table>';for(let k=i;k<Math.min(i+24,T.length);k+=2){const r=row(k);h+=`<tr><td>${r.t}</td><td>${fmt(r)}</td></tr>`}
+  el.innerHTML=h+'</table><p class="mu">Seuils : bon ≤ 10 cm, limite 15 cm. Prévision à grande maille : vérifie l’état réel de la mer. Données : Open-Meteo.com</p>';
+  $('#w1').onclick=()=>me?wx(me):toast('Position GPS en attente…');$('#w2').onclick=()=>wx(map.getCenter());
+ }catch(e){el.innerHTML='<h3>Météo</h3><p>Données indisponibles. Vérifie ta connexion internet.</p>'}}
+const gpx=()=>'<?xml version="1.0"?><gpx version="1.1" creator="Map Pêche" xmlns="http://www.topografix.com/GPX/1/1">'+pts.map(p=>`<wpt lat="${p.lat}" lon="${p.lng}"><name>${esc(p.name)}</name><desc>${esc((p.depth!=null?p.depth+' m. ':'')+p.note)}</desc></wpt>`).join('')+'</gpx>';
+async function copy(t){$('#ta').value=t;try{await navigator.clipboard.writeText(t);toast('Copié')}catch(e){$('#ta').select();toast('Sélectionne le texte et copie-le')}}
+$('#cj').onclick=()=>copy(JSON.stringify(pts));$('#cg').onclick=()=>copy(gpx());
+$('#rs').onclick=()=>{try{const a=JSON.parse($('#ta').value);if(!Array.isArray(a))throw 0;let n=0;a.forEach(x=>{if(x&&isFinite(x.lat)&&isFinite(x.lng)&&!pts.some(p=>p.id===x.id)){pts.push({id:x.id||Date.now()+n,name:String(x.name||'Point'),depth:x.depth??null,note:String(x.note||''),beach:!!x.beach,lat:+x.lat,lng:+x.lng,acc:x.acc??null,at:x.at||''});n++}});save();drawMk();toast(n+' point(s) restauré(s)')}catch(e){toast('Texte de sauvegarde invalide')}};
+drawMk();open('');
+</script></body></html>
