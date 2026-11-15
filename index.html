@@ -26,9 +26,12 @@ input[type=checkbox]{width:auto;margin-right:8px}
 .pt .row button{padding:8px;font-size:14px}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:5px 4px;border-top:1px solid #2c5a6e}
 #cx{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:36px;color:#ffc629;z-index:900;pointer-events:none;display:none;text-shadow:0 0 4px #000}
+.leaflet-popup-content button{margin-top:6px;padding:8px 10px;border:0;border-radius:8px;background:#ffc629;color:#1a1300;font-weight:700}
+#lg{position:absolute;left:8px;bottom:calc(68px + env(safe-area-inset-bottom));z-index:900;background:#fff;color:#111;border-radius:10px;padding:6px 8px;display:none;max-width:60%;font-size:12px}
+#lg img{display:block;max-height:40vh;max-width:100%}
 #toast{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:var(--fo);color:var(--ab);padding:10px 16px;border-radius:20px;z-index:2000;display:none;font-weight:600}
 </style></head><body>
-<div id="map"></div><div id="toast"></div><div id="cx">+</div>
+<div id="map"></div><div id="toast"></div><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div>
 <button class="fab" id="loc" aria-label="Ma position">◎</button>
 <button class="fab" id="add" aria-label="Nouveau point">＋</button>
 <div class="sheet" id="s-add"><h3>Nouveau point</h3>
@@ -36,7 +39,7 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 <input id="d" type="number" step="0.1" placeholder="Profondeur (m)">
 <input id="t" placeholder="Note (visibilité, courant, poissons…)">
 <label><input id="b" type="checkbox">Point d’entrée (plage)</label>
-<div class="row"><button id="hg">Enregistrer ici (GPS)</button><button id="hc" class="g">Au centre de la carte</button></div></div>
+<div class="row"><button id="hg">Enregistrer ici (GPS)</button><button id="hc" class="g">Au centre de la carte</button></div><button id="hp" class="g" style="display:none">Au point touché sur la carte</button></div>
 <div class="sheet" id="s-pts"></div><div class="sheet" id="s-wx"></div>
 <div class="sheet" id="s-bk"><h3>Sauvegarde</h3>
 <p class="mu">Copie ta sauvegarde et colle-la dans une note ou un message à toi-même. Fais-le avant chaque mise à jour de l’appli.</p>
@@ -47,10 +50,10 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 // Réglages : seuils de vagues (m), vent (km/h), vitesse de nage (m/min)
-const CFG={waveOk:0.10,waveMax:0.15,windMax:25,swim:25};
+const CFG={waveOk:0.10,waveMax:0.15,windMax:25,swim:25,zMin:10,zMax:20};
 const $=s=>document.querySelector(s),R=6371000,rad=x=>x*Math.PI/180;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let pts=[],me=null,ref='gps',ln=null,wt=null;
+let pts=[],me=null,ref='gps',ln=null,wt=null,tapPos=null;
 try{pts=JSON.parse(localStorage.getItem('pts')||'[]')}catch(e){}
 function save(){try{localStorage.setItem('pts',JSON.stringify(pts));return true}catch(e){toast('Sauvegarde impossible : copie tes points');return false}}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)}
@@ -64,21 +67,33 @@ const dep=o=>L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms',{layers:'em
 const sea=()=>L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenSeaMap'});
 const plan=sat().addTo(map);
 L.control.layers({'Satellite':plan,'Satellite + profondeurs':L.layerGroup([sat(),dep(.55)]),'Marine + profondeurs':L.layerGroup([osm(),dep(.6),sea()]),'Plan':osm()},null,{position:'topright'}).addTo(map);
+map.on('baselayerchange',e=>{$('#lg').style.display=/profondeurs/.test(e.name)?'block':'none'});
 const ml=L.layerGroup().addTo(map);let mk=null,ac=null,first=true;
-function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)+(p.depth!=null?' · '+p.depth+' m':''),{permanent:true,direction:'right',offset:[8,0]}).on('click',()=>go(p.id)).addTo(ml));renderPts()}
+function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{bubblingMouseEvents:false,radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)+(p.depth!=null?' · '+p.depth+' m':''),{permanent:true,direction:'right',offset:[8,0]}).on('click',()=>go(p.id)).addTo(ml));renderPts()}
 navigator.geolocation.watchPosition(p=>{me={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
  if(!mk){mk=L.circleMarker(me,{radius:7,color:'#fff',fillColor:'#2b8cff',fillOpacity:1}).addTo(map);ac=L.circle(me,{radius:me.acc,weight:1,color:'#2b8cff'}).addTo(map)}
  mk.setLatLng(me);ac.setLatLng(me).setRadius(me.acc);if(first){map.setView(me,15);first=false}renderPts()},
  ()=>toast('GPS indisponible : active la localisation'),{enableHighAccuracy:true,maximumAge:2000});
-function open(id){$('#cx').style.display=id==='s-add'?'block':'none';document.querySelectorAll('.sheet').forEach(s=>s.classList.toggle('show',s.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===(id||'')))}
+function open(id){$('#cx').style.display=id==='s-add'&&!tapPos?'block':'none';document.querySelectorAll('.sheet').forEach(s=>s.classList.toggle('show',s.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===(id||'')))}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{const s=b.dataset.s;if(s==='s-wx')wx(wt||me||map.getCenter());else open(s)});
 $('#loc').onclick=()=>me?map.setView(me,16):toast('Position GPS en attente…');
-$('#add').onclick=()=>open('s-add');
+$('#add').onclick=()=>{tapPos=null;$('#hp').style.display='none';open('s-add')};
 function addPt(pos){const name=$('#n').value.trim();if(!name)return toast('Donne un nom au point');
  pts.push({id:Date.now(),name,depth:$('#d').value===''?null:+$('#d').value,note:$('#t').value.trim(),beach:$('#b').checked,lat:+pos.lat.toFixed(6),lng:+pos.lng.toFixed(6),acc:pos.acc||null,at:new Date().toISOString()});
- if(save()){$('#n').value=$('#d').value=$('#t').value='';$('#b').checked=false;drawMk();open('');toast('Point enregistré')}}
+ if(save()){tapPos=null;$('#hp').style.display='none';$('#n').value=$('#d').value=$('#t').value='';$('#b').checked=false;drawMk();open('');toast('Point enregistré')}}
 $('#hg').onclick=()=>me?addPt(me):toast('Position GPS en attente…');
 $('#hc').onclick=()=>addPt(map.getCenter());
+$('#hp').onclick=()=>tapPos&&addPt(tapPos);
+map.on('click',async e=>{const p={lat:e.latlng.lat,lng:e.latlng.lng},box=document.createElement('div');box.textContent='Mesure…';
+ L.popup({maxWidth:260}).setLatLng(e.latlng).setContent(box).openOn(map);
+ let dt='Profondeur : indisponible (connexion ?)';
+ try{const r=await fetch(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT(${p.lng}%20${p.lat})`).then(x=>x.json()),a=parseFloat(r&&r.avg);
+  if(isFinite(a)){const d=-a;dt=d<=0?'Terre ou plage (pas de profondeur)':`Profondeur estimée : <b>~${Math.round(d)} m</b> ${d>=CFG.zMin&&d<=CFG.zMax?'✅ dans ta zone '+CFG.zMin+'–'+CFG.zMax+' m':d<CFG.zMin?'(moins profond)':'(plus profond)'}`}}catch(err){}
+ const bs=pts.filter(x=>x.beach).map(x=>({x,d:dist(p,x)})).sort((a,b)=>a.d-b.d)[0];
+ if(bs){if(ln)map.removeLayer(ln);ln=L.polyline([bs.x,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map)}
+ const bt=bs?`🏖 Plage la plus proche : <b>${esc(bs.x.name)}</b><br>${fm(bs.d)} · cap ${Math.round(brg(bs.x,p))}° ${card(brg(bs.x,p))} · nage ~${Math.max(1,Math.round(bs.d/CFG.swim))} min`:'Aucune plage enregistrée (coche « Point d’entrée (plage) » en enregistrant un point).';
+ box.innerHTML=`${dt}<br>${bt}<br><small>Estimation à ~115 m près, pas pour naviguer.</small><br><button>＋ Enregistrer ici</button>`;
+ box.querySelector('button').onclick=()=>{tapPos=p;map.closePopup();$('#hp').style.display='block';open('s-add')}});
 function go(id){const p=pts.find(x=>x.id==id),r=ref==='gps'?me:pts.find(x=>x.id==ref);map.setView([p.lat,p.lng],16);if(ln)map.removeLayer(ln);if(r)ln=L.polyline([r,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map);open('')}
 function renderPts(){const r=ref==='gps'?me:pts.find(p=>p.id==ref);
  const rows=pts.filter(p=>p.id!=ref).map(p=>({p,d:r?dist(r,p):null})).sort((a,b)=>(a.d??1e12)-(b.d??1e12));
