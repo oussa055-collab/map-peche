@@ -88,15 +88,22 @@ function addPt(pos){const name=$('#n').value.trim();if(!name)return toast('Donne
 $('#hg').onclick=()=>me?addPt(me):toast('Position GPS en attente…');
 $('#hc').onclick=()=>addPt(map.getCenter());
 $('#hp').onclick=()=>tapPos&&addPt(tapPos);
+const seg=(p,a,b)=>{const k=Math.cos(rad(p.lat))*111320,ax=(a.lon-p.lng)*k,ay=(a.lat-p.lat)*110540,bx=(b.lon-p.lng)*k,by=(b.lat-p.lat)*110540,dx=bx-ax,dy=by-ay,l=dx*dx+dy*dy,t=l?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/l)):0,x=ax+t*dx,y=ay+t*dy;return{d:Math.hypot(x,y),lat:p.lat+y/110540,lng:p.lng+x/k}};
+async function shore(p){try{const q=`[out:json][timeout:15];(way["natural"="beach"](around:3000,${p.lat},${p.lng});way["natural"="coastline"](around:3000,${p.lat},${p.lng}););out geom;`;
+ const r=await fetch('https://overpass-api.de/api/interpreter?data='+encodeURIComponent(q)).then(x=>x.json()),best={};
+ (r.elements||[]).forEach(w=>{const g=w.geometry||[],t=w.tags&&w.tags.natural;for(let i=0;i<g.length-1;i++){const s=seg(p,g[i],g[i+1]);if(!best[t]||s.d<best[t].d)best[t]=s}});return best}catch(e){return null}}
 map.on('click',async e=>{const p={lat:e.latlng.lat,lng:e.latlng.lng},box=document.createElement('div');box.textContent='Mesure…';
- L.popup({maxWidth:260}).setLatLng(e.latlng).setContent(box).openOn(map);
- let dt='Profondeur : indisponible (connexion ?)';
- try{const r=await fetch(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT(${p.lng}%20${p.lat})`).then(x=>x.json()),a=parseFloat(r&&r.avg);
-  if(isFinite(a)){const d=-a;dt=d<=0?'Terre ou plage (pas de profondeur)':`Profondeur estimée : <b>~${Math.round(d)} m</b> ${d>=CFG.zMin&&d<=CFG.zMax?'✅ dans ta zone '+CFG.zMin+'–'+CFG.zMax+' m':d<CFG.zMin?'(moins profond)':'(plus profond)'}`}}catch(err){}
- const bs=pts.filter(x=>x.beach).map(x=>({x,d:dist(p,x)})).sort((a,b)=>a.d-b.d)[0];
- if(bs){if(ln)map.removeLayer(ln);ln=L.polyline([bs.x,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map)}
- const bt=bs?`🏖 Plage la plus proche : <b>${esc(bs.x.name)}</b><br>${fm(bs.d)} · cap ${Math.round(brg(bs.x,p))}° ${card(brg(bs.x,p))} · nage ~${Math.max(1,Math.round(bs.d/CFG.swim))} min`:'Aucune plage enregistrée (coche « Point d’entrée (plage) » en enregistrant un point).';
- box.innerHTML=`${dt}<br>${bt}<br><small>Estimation à ~115 m près, pas pour naviguer.</small><br><button>＋ Enregistrer ici</button>`;
+ L.popup({maxWidth:270}).setLatLng(e.latlng).setContent(box).openOn(map);
+ const dP=(async()=>{try{const r=await fetch(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT(${p.lng}%20${p.lat})`).then(x=>x.json()),a=parseFloat(r&&r.avg);return isFinite(a)?-a:null}catch(err){return null}})();
+ const [d,sh]=await Promise.all([dP,shore(p)]);
+ const dt=d==null?'Profondeur : indisponible (connexion ?)':d<=0?'Terre ou plage (pas de profondeur)':`Profondeur estimée : <b>~${Math.round(d)} m</b> ${d>=CFG.zMin&&d<=CFG.zMax?'✅ zone '+CFG.zMin+'–'+CFG.zMax+' m':d<CFG.zMin?'(moins profond)':'(plus profond)'}`;
+ const c=[];
+ pts.filter(x=>x.beach).forEach(x=>c.push({n:'Ta plage « '+esc(x.name)+' »',d:dist(p,x),lat:x.lat,lng:x.lng}));
+ if(sh){if(sh.beach)c.push({n:'Plage la plus proche (OSM)',d:sh.beach.d,lat:sh.beach.lat,lng:sh.beach.lng});if(sh.coastline)c.push({n:'Côte la plus proche',d:sh.coastline.d,lat:sh.coastline.lat,lng:sh.coastline.lng})}
+ c.sort((a,b)=>a.d-b.d);
+ if(c[0]){if(ln)map.removeLayer(ln);ln=L.polyline([c[0],p],{color:'#ffc629',dashArray:'6 6'}).addTo(map)}
+ const bt=c.length?c.map(x=>`🏖 ${x.n} : <b>${fm(x.d)}</b> · nage ~${Math.max(1,Math.round(x.d/CFG.swim))} min`).join('<br>'):'Plage ou côte introuvable dans 3 km (ou pas de connexion). Enregistre ta plage avec « Point d’entrée (plage) ».';
+ box.innerHTML=`${dt}<br>${bt}<br><small>Profondeur : case de ~115 m, valeur indicative.</small><br><button>＋ Enregistrer ici</button>`;
  box.querySelector('button').onclick=()=>{tapPos=p;map.closePopup();$('#hp').style.display='block';open('s-add')}});
 function go(id){const p=pts.find(x=>x.id==id),r=ref==='gps'?me:pts.find(x=>x.id==ref);map.setView([p.lat,p.lng],16);if(ln)map.removeLayer(ln);if(r)ln=L.polyline([r,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map);open('')}
 function renderPts(){const r=ref==='gps'?me:pts.find(p=>p.id==ref);
