@@ -25,9 +25,10 @@ input[type=checkbox]{width:auto;margin-right:8px}
 .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.mu{color:var(--mu);font-size:14px}
 .pt .row button{padding:8px;font-size:14px}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:5px 4px;border-top:1px solid #2c5a6e}
+#cx{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:36px;color:#ffc629;z-index:900;pointer-events:none;display:none;text-shadow:0 0 4px #000}
 #toast{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:var(--fo);color:var(--ab);padding:10px 16px;border-radius:20px;z-index:2000;display:none;font-weight:600}
 </style></head><body>
-<div id="map"></div><div id="toast"></div>
+<div id="map"></div><div id="toast"></div><div id="cx">+</div>
 <button class="fab" id="loc" aria-label="Ma position">◎</button>
 <button class="fab" id="add" aria-label="Nouveau point">＋</button>
 <div class="sheet" id="s-add"><h3>Nouveau point</h3>
@@ -58,15 +59,18 @@ const brg=(a,b)=>{const y=Math.sin(rad(b.lng-a.lng))*Math.cos(rad(b.lat)),x=Math
 const fm=m=>m<1000?Math.round(m)+' m':(m/1000).toFixed(2)+' km',D=['N','NE','E','SE','S','SO','O','NO'],card=d=>D[Math.round(d/45)%8];
 const osm=()=>L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'});
 const map=L.map('map',{zoomControl:false}).setView([36.8,10.2],8);
-const plan=osm().addTo(map);
-L.control.layers({'Plan':plan,'Marine':L.layerGroup([osm(),L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenSeaMap'})])},null,{position:'topright'}).addTo(map);
+const sat=()=>L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:18,attribution:'© Esri, Maxar, Earthstar Geographics'});
+const dep=o=>L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms',{layers:'emodnet:mean_multicolour',format:'image/png',transparent:true,opacity:o,attribution:'© EMODnet Bathymetry'});
+const sea=()=>L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenSeaMap'});
+const plan=sat().addTo(map);
+L.control.layers({'Satellite':plan,'Satellite + profondeurs':L.layerGroup([sat(),dep(.55)]),'Marine + profondeurs':L.layerGroup([osm(),dep(.6),sea()]),'Plan':osm()},null,{position:'topright'}).addTo(map);
 const ml=L.layerGroup().addTo(map);let mk=null,ac=null,first=true;
-function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)).on('click',()=>go(p.id)).addTo(ml));renderPts()}
+function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)+(p.depth!=null?' · '+p.depth+' m':''),{permanent:true,direction:'right',offset:[8,0]}).on('click',()=>go(p.id)).addTo(ml));renderPts()}
 navigator.geolocation.watchPosition(p=>{me={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
  if(!mk){mk=L.circleMarker(me,{radius:7,color:'#fff',fillColor:'#2b8cff',fillOpacity:1}).addTo(map);ac=L.circle(me,{radius:me.acc,weight:1,color:'#2b8cff'}).addTo(map)}
  mk.setLatLng(me);ac.setLatLng(me).setRadius(me.acc);if(first){map.setView(me,15);first=false}renderPts()},
  ()=>toast('GPS indisponible : active la localisation'),{enableHighAccuracy:true,maximumAge:2000});
-function open(id){document.querySelectorAll('.sheet').forEach(s=>s.classList.toggle('show',s.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===(id||'')))}
+function open(id){$('#cx').style.display=id==='s-add'?'block':'none';document.querySelectorAll('.sheet').forEach(s=>s.classList.toggle('show',s.id===id));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===(id||'')))}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{const s=b.dataset.s;if(s==='s-wx')wx(wt||me||map.getCenter());else open(s)});
 $('#loc').onclick=()=>me?map.setView(me,16):toast('Position GPS en attente…');
 $('#add').onclick=()=>open('s-add');
@@ -78,7 +82,8 @@ $('#hc').onclick=()=>addPt(map.getCenter());
 function go(id){const p=pts.find(x=>x.id==id),r=ref==='gps'?me:pts.find(x=>x.id==ref);map.setView([p.lat,p.lng],16);if(ln)map.removeLayer(ln);if(r)ln=L.polyline([r,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map);open('')}
 function renderPts(){const r=ref==='gps'?me:pts.find(p=>p.id==ref);
  const rows=pts.filter(p=>p.id!=ref).map(p=>({p,d:r?dist(r,p):null})).sort((a,b)=>(a.d??1e12)-(b.d??1e12));
- $('#s-pts').innerHTML='<h3>Mes points ('+pts.length+')</h3><span class="mu">Mesurer depuis</span><select id="rf"><option value="gps">Ma position GPS</option>'+pts.map(p=>`<option value="${p.id}" ${p.id==ref?'selected':''}>${p.beach?'🏖 ':''}${esc(p.name)}</option>`).join('')+'</select>'
+ $('#s-pts').innerHTML='<h3>Mes points ('+pts.length+')</h3><span class="mu">Mesurer la distance depuis (choisis ta plage 🏖)</span><select id="rf"><option value="gps">Ma position GPS</option>'+pts.map(p=>`<option value="${p.id}" ${p.id==ref?'selected':''}>${p.beach?'🏖 ':''}${esc(p.name)}</option>`).join('')+'</select>'
+ +(pts.some(p=>p.beach)?'':'<p class="mu">Pour mesurer depuis la plage : touche ＋, coche « Point d’entrée (plage) » et enregistre-la. Elle apparaîtra dans cette liste.</p>')
  +(ref==='gps'&&me&&me.acc>20?`<p class="mu">Précision GPS faible : ±${Math.round(me.acc)} m</p>`:'')
  +(rows.length?'':'<p class="mu">Aucun point à mesurer. Touche ＋ sur la carte pour en enregistrer un.</p>')
  +rows.map(({p,d})=>`<div class="pt"><b>${p.beach?'🏖 ':''}${esc(p.name)}</b> <span class="mu">${p.depth!=null?p.depth+' m de fond':''}</span>`
