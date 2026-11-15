@@ -31,11 +31,14 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 #lgb{position:absolute;left:8px;bottom:calc(68px + env(safe-area-inset-bottom));z-index:900;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,198,41,.8);font-size:18px;display:none}
 .leaflet-control-layers{opacity:.88;font-size:14px}
 #lg img{display:block;max-height:30vh;max-width:100%}
+#rl{bottom:calc(188px + env(safe-area-inset-bottom))}
+#rb{position:absolute;left:8px;right:64px;top:calc(8px + env(safe-area-inset-top));z-index:900;display:none;align-items:center;gap:6px;background:rgba(7,28,40,.88);color:var(--fo);padding:6px 10px;border-radius:12px;font-size:14px}
+#rb span{flex:1}#rb button{border:0;border-radius:8px;background:#1d4a5e;color:var(--fo);padding:6px 10px;font-size:16px}
 #toast{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:var(--fo);color:var(--ab);padding:10px 16px;border-radius:20px;z-index:2000;display:none;font-weight:600}
 </style></head><body>
-<div id="map"></div><div id="toast"></div><button id="lgb" aria-label="Échelle des profondeurs">🎨</button><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div>
+<div id="map"></div><div id="toast"></div><button id="lgb" aria-label="Échelle des profondeurs">🎨</button><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div><div id="rb"><span id="rt"></span><button id="ru" aria-label="Annuler le dernier point">↩</button><button id="rx" aria-label="Fermer la règle">✕</button></div>
 <button class="fab" id="loc" aria-label="Ma position">◎</button>
-<button class="fab" id="add" aria-label="Nouveau point">＋</button>
+<button class="fab" id="add" aria-label="Nouveau point">＋</button><button class="fab" id="rl" aria-label="Règle de mesure">📏</button>
 <div class="sheet" id="s-add"><h3>Nouveau point</h3>
 <input id="n" placeholder="Nom (ex : tombant du phare)">
 <input id="d" type="number" step="0.1" placeholder="Profondeur (m)">
@@ -73,7 +76,7 @@ map.on('baselayerchange',e=>{const on=/profondeurs/.test(e.name);$('#lgb').style
 $('#lgb').onclick=()=>{const l=$('#lg');l.style.display=l.style.display==='block'?'none':'block'};
 $('#lg').onclick=()=>$('#lg').style.display='none';
 const ml=L.layerGroup().addTo(map);let mk=null,ac=null,first=true;
-function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{bubblingMouseEvents:false,radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)+(p.depth!=null?' · '+p.depth+' m':''),{permanent:true,direction:'right',offset:[8,0]}).on('click',()=>go(p.id)).addTo(ml));renderPts()}
+function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{bubblingMouseEvents:false,radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)+(p.depth!=null?' · '+p.depth+' m':''),{permanent:true,direction:'right',offset:[8,0]}).on('click',()=>rOn?rAdd(p):go(p.id)).addTo(ml));renderPts()}
 navigator.geolocation.watchPosition(p=>{me={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
  if(!mk){mk=L.circleMarker(me,{radius:7,color:'#fff',fillColor:'#2b8cff',fillOpacity:1}).addTo(map);ac=L.circle(me,{radius:me.acc,weight:1,color:'#2b8cff'}).addTo(map)}
  mk.setLatLng(me);ac.setLatLng(me).setRadius(me.acc);if(first){map.setView(me,15);first=false}renderPts()},
@@ -88,22 +91,20 @@ function addPt(pos){const name=$('#n').value.trim();if(!name)return toast('Donne
 $('#hg').onclick=()=>me?addPt(me):toast('Position GPS en attente…');
 $('#hc').onclick=()=>addPt(map.getCenter());
 $('#hp').onclick=()=>tapPos&&addPt(tapPos);
-const seg=(p,a,b)=>{const k=Math.cos(rad(p.lat))*111320,ax=(a.lon-p.lng)*k,ay=(a.lat-p.lat)*110540,bx=(b.lon-p.lng)*k,by=(b.lat-p.lat)*110540,dx=bx-ax,dy=by-ay,l=dx*dx+dy*dy,t=l?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/l)):0,x=ax+t*dx,y=ay+t*dy;return{d:Math.hypot(x,y),lat:p.lat+y/110540,lng:p.lng+x/k}};
-async function shore(p){try{const q=`[out:json][timeout:15];(way["natural"="beach"](around:3000,${p.lat},${p.lng});way["natural"="coastline"](around:3000,${p.lat},${p.lng}););out geom;`;
- const r=await fetch('https://overpass-api.de/api/interpreter?data='+encodeURIComponent(q)).then(x=>x.json()),best={};
- (r.elements||[]).forEach(w=>{const g=w.geometry||[],t=w.tags&&w.tags.natural;for(let i=0;i<g.length-1;i++){const s=seg(p,g[i],g[i+1]);if(!best[t]||s.d<best[t].d)best[t]=s}});return best}catch(e){return null}}
-map.on('click',async e=>{const p={lat:e.latlng.lat,lng:e.latlng.lng},box=document.createElement('div');box.textContent='Mesure…';
+let rpts=[],rOn=false;const rmk=L.layerGroup().addTo(map);
+function rDraw(){rmk.clearLayers();rpts.forEach(q=>L.circleMarker(q,{radius:5,color:'#fff',weight:2,fillColor:'#2bb3c0',fillOpacity:1,interactive:false}).addTo(rmk));
+ if(rpts.length>1)L.polyline(rpts,{color:'#2bb3c0',weight:3,interactive:false}).addTo(rmk);
+ let t=0,l=0;for(let i=1;i<rpts.length;i++){l=dist(rpts[i-1],rpts[i]);t+=l}
+ $('#rt').innerHTML=rpts.length>1?`📏 <b>${fm(t)}</b>`+(rpts.length>2?` <small>(dernier tronçon : ${fm(l)})</small>`:'')+` <small>· nage ~${Math.max(1,Math.round(t/CFG.swim))} min</small>`:'📏 Touche le point de départ, puis le point d’arrivée'}
+function rAdd(q){rpts.push({lat:q.lat,lng:q.lng});rDraw()}
+function rSet(on){rOn=on;$('#rb').style.display=on?'flex':'none';$('#rl').style.opacity=on?1:.85;if(!on)rpts=[];rDraw();if(on){map.closePopup();open('')}}
+$('#rl').onclick=()=>rSet(!rOn);$('#ru').onclick=()=>{rpts.pop();rDraw()};$('#rx').onclick=()=>rSet(false);
+map.on('click',async e=>{if(rOn){rAdd(e.latlng);return}
+ const p={lat:e.latlng.lat,lng:e.latlng.lng},box=document.createElement('div');box.textContent='Mesure…';
  L.popup({maxWidth:270}).setLatLng(e.latlng).setContent(box).openOn(map);
- const dP=(async()=>{try{const r=await fetch(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT(${p.lng}%20${p.lat})`).then(x=>x.json()),a=parseFloat(r&&r.avg);return isFinite(a)?-a:null}catch(err){return null}})();
- const [d,sh]=await Promise.all([dP,shore(p)]);
+ let d=null;try{const r=await fetch(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT(${p.lng}%20${p.lat})`).then(x=>x.json()),a=parseFloat(r&&r.avg);if(isFinite(a))d=-a}catch(err){}
  const dt=d==null?'Profondeur : indisponible (connexion ?)':d<=0?'Terre ou plage (pas de profondeur)':`Profondeur estimée : <b>~${Math.round(d)} m</b> ${d>=CFG.zMin&&d<=CFG.zMax?'✅ zone '+CFG.zMin+'–'+CFG.zMax+' m':d<CFG.zMin?'(moins profond)':'(plus profond)'}`;
- const c=[];
- pts.filter(x=>x.beach).forEach(x=>c.push({n:'Ta plage « '+esc(x.name)+' »',d:dist(p,x),lat:x.lat,lng:x.lng}));
- if(sh){if(sh.beach)c.push({n:'Plage la plus proche (OSM)',d:sh.beach.d,lat:sh.beach.lat,lng:sh.beach.lng});if(sh.coastline)c.push({n:'Côte la plus proche',d:sh.coastline.d,lat:sh.coastline.lat,lng:sh.coastline.lng})}
- c.sort((a,b)=>a.d-b.d);
- if(c[0]){if(ln)map.removeLayer(ln);ln=L.polyline([c[0],p],{color:'#ffc629',dashArray:'6 6'}).addTo(map)}
- const bt=c.length?c.map(x=>`🏖 ${x.n} : <b>${fm(x.d)}</b> · nage ~${Math.max(1,Math.round(x.d/CFG.swim))} min`).join('<br>'):'Plage ou côte introuvable dans 3 km (ou pas de connexion). Enregistre ta plage avec « Point d’entrée (plage) ».';
- box.innerHTML=`${dt}<br>${bt}<br><small>Profondeur : case de ~115 m, valeur indicative.</small><br><button>＋ Enregistrer ici</button>`;
+ box.innerHTML=`${dt}<br><small>Profondeur : case de ~115 m, valeur indicative.</small><br><button>＋ Enregistrer ici</button>`;
  box.querySelector('button').onclick=()=>{tapPos=p;map.closePopup();$('#hp').style.display='block';open('s-add')}});
 function go(id){const p=pts.find(x=>x.id==id),r=ref==='gps'?me:pts.find(x=>x.id==ref);map.setView([p.lat,p.lng],16);if(ln)map.removeLayer(ln);if(r)ln=L.polyline([r,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map);open('')}
 function renderPts(){const r=ref==='gps'?me:pts.find(p=>p.id==ref);
