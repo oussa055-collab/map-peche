@@ -33,10 +33,11 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 #lg img{display:block;max-height:30vh;max-width:100%}
 #rl{bottom:calc(188px + env(safe-area-inset-bottom))}
 #rb{position:absolute;left:8px;right:64px;top:calc(8px + env(safe-area-inset-top));z-index:900;display:none;align-items:center;gap:6px;background:rgba(7,28,40,.88);color:var(--fo);padding:6px 10px;border-radius:12px;font-size:14px}
-#rb span{flex:1}#rb button{border:0;border-radius:8px;background:#1d4a5e;color:var(--fo);padding:6px 10px;font-size:16px}
+#rb{flex-wrap:wrap}#rb span{flex:1 1 100%}#rb button{border:0;border-radius:8px;background:#1d4a5e;color:var(--fo);padding:6px 10px;font-size:16px}
+.leaflet-popup-content{white-space:nowrap;margin:10px 14px}
 #toast{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:var(--fo);color:var(--ab);padding:10px 16px;border-radius:20px;z-index:2000;display:none;font-weight:600}
 </style></head><body>
-<div id="map"></div><div id="toast"></div><button id="lgb" aria-label="Échelle des profondeurs">🎨</button><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div><div id="rb"><span id="rt"></span><button id="ru" aria-label="Annuler le dernier point">↩</button><button id="rx" aria-label="Fermer la règle">✕</button></div>
+<div id="map"></div><div id="toast"></div><button id="lgb" aria-label="Échelle des profondeurs">🎨</button><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div><div id="rb"><span id="rt"></span><button id="ru" aria-label="Annuler le dernier point">↩</button><button id="rc">Effacer la ligne</button><button id="rx" aria-label="Fermer la règle">✕</button></div>
 <button class="fab" id="loc" aria-label="Ma position">◎</button>
 <button class="fab" id="add" aria-label="Nouveau point">＋</button><button class="fab" id="rl" aria-label="Règle de mesure">📏</button>
 <div class="sheet" id="s-add"><h3>Nouveau point</h3>
@@ -98,14 +99,13 @@ function rDraw(){rmk.clearLayers();rpts.forEach(q=>L.circleMarker(q,{radius:5,co
  $('#rt').innerHTML=rpts.length>1?`📏 <b>${fm(t)}</b>`+(rpts.length>2?` <small>(dernier tronçon : ${fm(l)})</small>`:'')+` <small>· nage ~${Math.max(1,Math.round(t/CFG.swim))} min</small>`:'📏 Touche le point de départ, puis le point d’arrivée'}
 function rAdd(q){rpts.push({lat:q.lat,lng:q.lng});rDraw()}
 function rSet(on){rOn=on;$('#rb').style.display=on?'flex':'none';$('#rl').style.opacity=on?1:.85;if(!on)rpts=[];rDraw();if(on){map.closePopup();open('')}}
-$('#rl').onclick=()=>rSet(!rOn);$('#ru').onclick=()=>{rpts.pop();rDraw()};$('#rx').onclick=()=>rSet(false);
+$('#rl').onclick=()=>rSet(!rOn);$('#ru').onclick=()=>{rpts.pop();rDraw()};$('#rc').onclick=()=>{rpts=[];rDraw()};$('#rx').onclick=()=>rSet(false);
 map.on('click',async e=>{if(rOn){rAdd(e.latlng);return}
  const p={lat:e.latlng.lat,lng:e.latlng.lng},box=document.createElement('div');box.textContent='Mesure…';
  L.popup({maxWidth:270}).setLatLng(e.latlng).setContent(box).openOn(map);
  let d=null;try{const r=await fetch(`https://rest.emodnet-bathymetry.eu/depth_sample?geom=POINT(${p.lng}%20${p.lat})`).then(x=>x.json()),a=parseFloat(r&&r.avg);if(isFinite(a))d=-a}catch(err){}
- const dt=d==null?'Profondeur : indisponible (connexion ?)':d<=0?'Terre ou plage (pas de profondeur)':`Profondeur estimée : <b>~${Math.round(d)} m</b> ${d>=CFG.zMin&&d<=CFG.zMax?'✅ zone '+CFG.zMin+'–'+CFG.zMax+' m':d<CFG.zMin?'(moins profond)':'(plus profond)'}`;
- box.innerHTML=`${dt}<br><small>Profondeur : case de ~115 m, valeur indicative.</small><br><button>＋ Enregistrer ici</button>`;
- box.querySelector('button').onclick=()=>{tapPos=p;map.closePopup();$('#hp').style.display='block';open('s-add')}});
+ const dt=d==null?'Profondeur indisponible':d<=0?'Terre':`Profondeur : <b>~${Math.round(d)} m</b>`;
+ box.innerHTML=dt});
 function go(id){const p=pts.find(x=>x.id==id),r=ref==='gps'?me:pts.find(x=>x.id==ref);map.setView([p.lat,p.lng],16);if(ln)map.removeLayer(ln);if(r)ln=L.polyline([r,p],{color:'#ffc629',dashArray:'6 6'}).addTo(map);open('')}
 function renderPts(){const r=ref==='gps'?me:pts.find(p=>p.id==ref);
  const rows=pts.filter(p=>p.id!=ref).map(p=>({p,d:r?dist(r,p):null})).sort((a,b)=>(a.d??1e12)-(b.d??1e12));
