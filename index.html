@@ -11,27 +11,29 @@ html,body{margin:0;height:100%;background:var(--ab);color:var(--fo);font:16px sy
 nav{position:absolute;left:0;right:0;bottom:0;height:calc(60px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:var(--ti);z-index:1100}
 nav button{flex:1;border:0;background:none;color:var(--fo);font-size:14px}
 nav button.on{color:var(--bu);font-weight:700}
-.fab{position:absolute;right:12px;z-index:900;width:52px;height:52px;border-radius:50%;border:0;background:var(--bu);color:#1a1300;font-size:24px}
+.fab{position:absolute;right:12px;z-index:900;width:44px;height:44px;border-radius:50%;border:0;background:var(--bu);color:#1a1300;font-size:20px;opacity:.85}
 #loc{bottom:calc(72px + env(safe-area-inset-bottom))}#add{bottom:calc(132px + env(safe-area-inset-bottom))}
 .sheet{display:none;position:absolute;left:0;right:0;bottom:calc(60px + env(safe-area-inset-bottom));max-height:72%;overflow:auto;background:var(--ti);padding:14px;border-radius:16px 16px 0 0;z-index:1000}
 .sheet.show{display:block}
 h3{margin:0 0 10px;font-size:18px}
-input,select,textarea,.sheet button{width:100%;margin:4px 0;padding:12px;border-radius:10px;border:1px solid #2c5a6e;background:var(--ab);color:var(--fo);font-size:16px}
+.sheet input,.sheet select,.sheet textarea,.sheet button{width:100%;margin:4px 0;padding:12px;border-radius:10px;border:1px solid #2c5a6e;background:var(--ab);color:var(--fo);font-size:16px}
 .sheet button{background:var(--bu);color:#1a1300;border:0;font-weight:700}
 .sheet button.g{background:#1d4a5e;color:var(--fo)}.sheet button.r{background:var(--rd);color:#fff}
 .row{display:flex;gap:8px}.row>*{flex:1}
-input[type=checkbox]{width:auto;margin-right:8px}
+.sheet input[type=checkbox]{width:auto;margin-right:8px}
 .pt{border-top:1px solid #2c5a6e;padding:10px 0}
 .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.mu{color:var(--mu);font-size:14px}
 .pt .row button{padding:8px;font-size:14px}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:5px 4px;border-top:1px solid #2c5a6e}
 #cx{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:36px;color:#ffc629;z-index:900;pointer-events:none;display:none;text-shadow:0 0 4px #000}
 .leaflet-popup-content button{margin-top:6px;padding:8px 10px;border:0;border-radius:8px;background:#ffc629;color:#1a1300;font-weight:700}
-#lg{position:absolute;left:8px;bottom:calc(68px + env(safe-area-inset-bottom));z-index:900;background:#fff;color:#111;border-radius:10px;padding:6px 8px;display:none;max-width:60%;font-size:12px}
-#lg img{display:block;max-height:40vh;max-width:100%}
+#lg{position:absolute;left:8px;bottom:calc(114px + env(safe-area-inset-bottom));z-index:900;background:rgba(255,255,255,.88);color:#111;border-radius:10px;padding:6px 8px;display:none;width:150px;font-size:12px}
+#lgb{position:absolute;left:8px;bottom:calc(68px + env(safe-area-inset-bottom));z-index:900;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,198,41,.8);font-size:18px;display:none}
+.leaflet-control-layers{opacity:.88;font-size:14px}
+#lg img{display:block;max-height:30vh;max-width:100%}
 #toast{position:absolute;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:var(--fo);color:var(--ab);padding:10px 16px;border-radius:20px;z-index:2000;display:none;font-weight:600}
 </style></head><body>
-<div id="map"></div><div id="toast"></div><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div>
+<div id="map"></div><div id="toast"></div><button id="lgb" aria-label="Échelle des profondeurs">🎨</button><div id="lg"><b>Profondeur (m)</b><img alt="Échelle des couleurs de profondeur" src="https://ows.emodnet-bathymetry.eu/wms?service=WMS&amp;version=1.1.1&amp;request=GetLegendGraphic&amp;format=image/png&amp;layer=emodnet:mean_multicolour"></div><div id="cx">+</div>
 <button class="fab" id="loc" aria-label="Ma position">◎</button>
 <button class="fab" id="add" aria-label="Nouveau point">＋</button>
 <div class="sheet" id="s-add"><h3>Nouveau point</h3>
@@ -66,8 +68,10 @@ const sat=()=>L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/
 const dep=o=>L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms',{layers:'emodnet:mean_multicolour',format:'image/png',transparent:true,opacity:o,attribution:'© EMODnet Bathymetry'});
 const sea=()=>L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenSeaMap'});
 const plan=sat().addTo(map);
-L.control.layers({'Satellite':plan,'Satellite + profondeurs':L.layerGroup([sat(),dep(.55)]),'Marine + profondeurs':L.layerGroup([osm(),dep(.6),sea()]),'Plan':osm()},null,{position:'topright'}).addTo(map);
-map.on('baselayerchange',e=>{$('#lg').style.display=/profondeurs/.test(e.name)?'block':'none'});
+L.control.layers({'Satellite':plan,'Satellite + profondeurs':L.layerGroup([sat(),dep(.55)]),'Marine + profondeurs':L.layerGroup([osm(),dep(.6),sea()]),'Plan':osm()},null,{position:'topright',collapsed:true}).addTo(map);
+map.on('baselayerchange',e=>{const on=/profondeurs/.test(e.name);$('#lgb').style.display=on?'block':'none';if(!on)$('#lg').style.display='none'});
+$('#lgb').onclick=()=>{const l=$('#lg');l.style.display=l.style.display==='block'?'none':'block'};
+$('#lg').onclick=()=>$('#lg').style.display='none';
 const ml=L.layerGroup().addTo(map);let mk=null,ac=null,first=true;
 function drawMk(){ml.clearLayers();pts.forEach(p=>L.circleMarker([p.lat,p.lng],{bubblingMouseEvents:false,radius:9,color:'#fff',weight:2,fillColor:p.beach?'#ffc629':'#ff5a4f',fillOpacity:1}).bindTooltip(esc(p.name)+(p.depth!=null?' · '+p.depth+' m':''),{permanent:true,direction:'right',offset:[8,0]}).on('click',()=>go(p.id)).addTo(ml));renderPts()}
 navigator.geolocation.watchPosition(p=>{me={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
